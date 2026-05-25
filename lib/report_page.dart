@@ -1,16 +1,16 @@
-import 'package:employeeattendance/loa_page.dart';
-import 'package:employeeattendance/settings_page.dart';
+import 'package:employeeattendance/login_page.dart';
+import 'package:employeeattendance/utils/attendance_utils.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'home_page.dart';
-import 'login_page.dart';
 
 class ReportPage extends StatefulWidget {
   final String employeeId;
+  final String role;
 
   const ReportPage({
     super.key,
     required this.employeeId,
+    required this.role,
   });
 
   @override
@@ -19,52 +19,16 @@ class ReportPage extends StatefulWidget {
 
 class _ReportPageState extends State<ReportPage> {
   DateTime? selectedDate;
-  int currentIndex = 1;
+  AttendanceConfig _config = const AttendanceConfig();
 
   final CollectionReference attendance = FirebaseFirestore.instance.collection('attendance');
 
-  void onTabChanged(int index) {
-    setState(() {
-      currentIndex = index;
+  @override
+  void initState() {
+    super.initState();
+    AttendanceConfig.loadFromFirestore().then((c) {
+      if (mounted) setState(() => _config = c);
     });
-
-    switch (index) {
-      case 0:
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (context) => HomePage(
-              employeeId: widget.employeeId,
-            ),
-          ),
-        );
-        break;
-
-      case 1:
-        break;
-
-      case 2:
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => LoaPage(
-              employeeId: widget.employeeId,
-            ),
-          ),
-        );
-        break;
-
-      case 3:
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => SettingsPage(
-              employeeId: widget.employeeId,
-            ),
-          ),
-        );
-        break;
-    }
   }
 
   void logout() {
@@ -98,53 +62,196 @@ class _ReportPageState extends State<ReportPage> {
         date.day == selectedDate!.day;
   }
 
-  String formatDate(DateTime date) {
-    int hour = date.hour;
-    String ampm = "AM";
-
-    if (hour >= 12) {
-      ampm = "PM";
-      if (hour > 12) hour -= 12;
-    }
-
-    if (hour == 0) hour = 12;
-
-    String minute = date.minute.toString().padLeft(2, '0');
-
-    return "${date.month}/${date.day}/${date.year} - $hour:$minute $ampm";
+  List<QueryDocumentSnapshot> _sortedByDate(List<QueryDocumentSnapshot> docs) {
+    final sorted = List<QueryDocumentSnapshot>.from(docs);
+    sorted.sort((a, b) {
+      final aDate = (a.data() as Map<String, dynamic>)['date'] as Timestamp?;
+      final bDate = (b.data() as Map<String, dynamic>)['date'] as Timestamp?;
+      if (aDate == null && bDate == null) return 0;
+      if (aDate == null) return 1;
+      if (bDate == null) return -1;
+      return bDate.compareTo(aDate);
+    });
+    return sorted;
   }
 
-  String getStatus(Map<String, dynamic> data) {
-    if (data['time_in'] == null) return "ABSENT";
-
-    DateTime timeIn = (data['time_in'] as Timestamp).toDate();
-    DateTime? timeOut =
-    data['time_out'] != null ? (data['time_out'] as Timestamp).toDate() : null;
-    DateTime cutoff = DateTime(timeIn.year, timeIn.month, timeIn.day, 8, 0);
-
-    bool isLate = timeIn.isAfter(cutoff);
-
-    int totalMinutes =
-    timeOut != null ? timeOut.difference(timeIn).inMinutes : 0;
-
-    bool isUndertime = timeOut != null && totalMinutes < 480;
-
-    if (timeOut == null) {
-      return isLate ? "LATE (INCOMPLETE)" : "PRESENT (INCOMPLETE)";
-    }
-
-    if (isUndertime) return "UNDERTIME";
-    if (isLate) return "LATE";
-
-    return "PRESENT";
+  Widget _statusChip(String status) {
+    final color = statusColor(status);
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color),
+      ),
+      child: Text(
+        status,
+        style: TextStyle(
+          color: color,
+          fontSize: 11,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
   }
 
-  Color getStatusColor(String status) {
-    if (status.contains("PRESENT")) return Colors.green;
-    if (status.contains("LATE")) return Colors.orange;
-    if (status.contains("UNDERTIME")) return Colors.amber;
-    if (status.contains("ABSENT")) return Colors.red;
-    return Colors.grey;
+  Widget _detailRow({
+    required IconData icon,
+    required String label,
+    required String value,
+  }) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 18, color: Colors.white54),
+          SizedBox(width: 10),
+          SizedBox(
+            width: 72,
+            child: Text(label,
+              style: TextStyle(
+                  color: Colors.white54,
+                  fontSize: 13,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(value,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _recordCard(Map<String, dynamic> data) {
+    final status = getReportStatus(data, config: _config);
+    final color = statusColor(status);
+    final timeIn = data['time_in'] as Timestamp?;
+    final timeOut = data['time_out'] as Timestamp?;
+    final recordDate = data['date'] as Timestamp?;
+    final name = data['name']?.toString() ?? 'Attendance Record';
+
+    return Container(
+      margin: EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
+        color: Color(0xFF1E293B),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Color(0xFF334155)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.2),
+            blurRadius: 6,
+            offset: Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Container(
+            padding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.vertical(
+                top: Radius.circular(11),
+              ),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Color(0xFF1E3A8A).withValues(alpha: 0.6),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    Icons.calendar_today,
+                    color: Colors.white70,
+                    size: 20,
+                  ),
+                ),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        formatRecordDate(recordDate),
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                        ),
+                      ),
+                      SizedBox(height: 2),
+                      Text(name,
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 12,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+                _statusChip(status),
+              ],
+            ),
+          ),
+          Padding(
+            padding: EdgeInsets.fromLTRB(14, 12, 14, 14),
+            child: Column(
+              children: [
+                _detailRow(
+                  icon: Icons.login_rounded,
+                  label: 'Time In',
+                  value: timeIn != null
+                      ? formatDateTime(timeIn.toDate())
+                      : 'Not set',
+                ),
+                _detailRow(
+                  icon: Icons.logout_rounded,
+                  label: 'Time Out',
+                  value: timeOut != null
+                      ? formatDateTime(timeOut.toDate())
+                      : 'Not yet',
+                ),
+                _detailRow(
+                  icon: Icons.timer_outlined,
+                  label: 'Hours',
+                  value: calculateHours(
+                    timeIn,
+                    timeOut,
+                    standardMinutes: _config.standardWorkMinutes,
+                  ),
+                ),
+                Divider(color: Color(0xFF334155), height: 1),
+                SizedBox(height: 8),
+                Row(
+                  children: [
+                    Icon(Icons.badge_outlined, size: 16, color: Colors.white38),
+                    SizedBox(width: 6),
+                    Text('ID: ${data['employee_id'] ?? widget.employeeId}',
+                      style: TextStyle(
+                        color: Colors.white38,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -154,16 +261,27 @@ class _ReportPageState extends State<ReportPage> {
       appBar: AppBar(
         backgroundColor: Color(0xFF1E3A8A),
         title: Text("Attendance History",
-          style: TextStyle(color: Colors.white),
+          style: TextStyle(
+              color: Colors.white,
+          ),
         ),
+        foregroundColor: Colors.white,
         iconTheme: IconThemeData(color: Colors.white),
         actions: [
           IconButton(
-            icon: Icon(Icons.calendar_today),
+            icon: Icon(Icons.calendar_today, color: Colors.white),
+            tooltip: 'Filter by date',
             onPressed: pickDate,
           ),
+          if (selectedDate != null)
+            IconButton(
+              icon: Icon(Icons.filter_alt_off, color: Colors.white),
+              tooltip: 'Clear filter',
+              onPressed: () => setState(() => selectedDate = null),
+            ),
           IconButton(
-            icon: Icon(Icons.logout),
+            icon: Icon(Icons.logout, color: Colors.white),
+            tooltip: 'Logout',
             onPressed: logout,
           ),
         ],
@@ -178,12 +296,17 @@ class _ReportPageState extends State<ReportPage> {
             return Center(child: CircularProgressIndicator());
           }
 
-          var docs = snapshot.data!.docs;
+          final docs = snapshot.data!.docs;
 
-          var filtered = docs.where((doc) {
-            final data = doc.data() as Map<String, dynamic>;
-            return data['date'] != null && isSameDate(data['date']);
-          }).toList();
+          final filtered = _sortedByDate(
+            docs.where((doc) {
+              final data = doc.data() as Map<String, dynamic>;
+              if (data['date'] == null) return false;
+              return isSameDate(data['date']);
+            }).toList(),
+          );
+
+          final recordCount = filtered.length;
 
           return Column(
             children: [
@@ -197,94 +320,103 @@ class _ReportPageState extends State<ReportPage> {
                     bottomRight: Radius.circular(20),
                   ),
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                child: Row(
                   children: [
-                    Text("Attendance History",
-                      style: TextStyle(
+                    Container(
+                      padding: EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(
+                        Icons.bar_chart_rounded,
                         color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
+                        size: 28,
                       ),
                     ),
-                    SizedBox(height: 5),
-                    Text(selectedDate == null
-                          ? "Showing: ALL RECORDS"
-                          : "Showing: ${selectedDate!.month}/${selectedDate!.day}/${selectedDate!.year}",
-                      style: TextStyle(color: Colors.white70),
+                    SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Attendance History',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            selectedDate == null
+                                ? 'All records · $recordCount total'
+                                : 'Filtered · $recordCount record${recordCount == 1 ? '' : 's'}',
+                            style: TextStyle(
+                                color: Colors.white70,
+                            ),
+                          ),
+                          if (selectedDate != null) ...[
+                            SizedBox(height: 4),
+                            Text('${selectedDate!.month}/${selectedDate!.day}/${selectedDate!.year}',
+                              style: TextStyle(
+                                color: Colors.white54,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
                     ),
                   ],
                 ),
               ),
-              SizedBox(height: 10),
-
               Expanded(
                 child: filtered.isEmpty
                     ? Center(
-                  child: Text("No attendance found",
-                    style: TextStyle(color: Colors.white),
-                  ),
-                )
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.event_busy_outlined,
+                              size: 56,
+                              color: Colors.white.withValues(alpha: 0.2),
+                            ),
+                            SizedBox(height: 12),
+                            Text(
+                              selectedDate == null
+                                  ? 'No attendance records yet'
+                                  : 'No records for this date',
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: 16,
+                              ),
+                            ),
+                            SizedBox(height: 6),
+                            Text(
+                              selectedDate == null
+                                  ? 'Time in from Home to create records'
+                                  : 'Tap the calendar to pick another date',
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.4),
+                                fontSize: 13,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ),
+                      )
                     : ListView.builder(
-                  itemCount: filtered.length,
-                  itemBuilder: (context, index) {
-
-                    final data = filtered[index].data() as Map<String, dynamic>;
-
-                    String status = getStatus(data);
-
-                    return Container(
-                      margin: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      padding: EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
+                        padding: EdgeInsets.fromLTRB(16, 16, 16, 16),
+                        itemCount: filtered.length,
+                        itemBuilder: (context, index) {
+                          final data = filtered[index].data() as Map<String, dynamic>;
+                          return _recordCard(data);
+                        },
                       ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text("Employee ID: ${data['employee_id']}",
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
-                            ),
-                          ),
-                          SizedBox(height: 8),
-                          Text("Time In: ${data['time_in'] != null ? formatDate((data['time_in'] as Timestamp).toDate()) : 'Not set'}",
-                          ),
-                          Text("Time Out: ${data['time_out'] != null ? formatDate((data['time_out'] as Timestamp).toDate()) : 'Not yet'}",
-                          ),
-                          SizedBox(height: 8),
-                          Text("Status: $status",
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: getStatusColor(status),
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                ),
               ),
             ],
           );
         },
-      ),
-
-      bottomNavigationBar: BottomNavigationBar(
-        backgroundColor: Color(0xFF1E3A8A),
-        currentIndex: currentIndex,
-        onTap: onTabChanged,
-        selectedItemColor: Colors.blue,
-        unselectedItemColor: Colors.grey,
-        type: BottomNavigationBarType.fixed,
-        items: [
-          BottomNavigationBarItem(icon: Icon(Icons.home), label: "Home"),
-          BottomNavigationBarItem(icon: Icon(Icons.bar_chart), label: "Report"),
-          BottomNavigationBarItem(icon: Icon(Icons.description), label: "LOA"),
-          BottomNavigationBarItem(icon: Icon(Icons.settings), label: "Settings"),
-        ],
       ),
     );
   }

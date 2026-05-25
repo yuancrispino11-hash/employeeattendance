@@ -1,6 +1,19 @@
 # employeeattendance
 
-A new Flutter project.
+Employee attendance app with admin dashboard.
+
+## First admin account
+
+In Firebase Console → Firestore → `employees` collection, create a document:
+
+| Field | Example |
+|-------|---------|
+| Document ID | `admin001` (used as login ID) |
+| `name` | `Admin User` |
+| `password` | `yourpassword` |
+| `role` | `admin` |
+
+Log in with that ID and password. Admins can add more employees or admins from **Employees** in the app.
 
 ## Getting Started
 

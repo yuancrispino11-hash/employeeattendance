@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'home_page.dart';
+import 'admin_dashboard.dart';
+import 'employee_shell.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -22,7 +23,7 @@ class _LoginPageState extends State<LoginPage> {
 
     if (empID.isEmpty || password.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Please fill all fields")),
+        const SnackBar(content: Text("Please fill all fields")),
       );
       return;
     }
@@ -41,27 +42,45 @@ class _LoginPageState extends State<LoginPage> {
       }
 
       final data = doc.data() as Map<String, dynamic>;
+
       final storedPassword = data['password']?.toString();
+      final role = data['role']?.toString() ?? "employee";
 
       if (storedPassword == null) {
         showError("Invalid employee data");
         return;
       }
 
-      if (storedPassword == password) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (context) => HomePage(employeeId: doc.id,),
-          ),
-        );
-      } else {
+      if (storedPassword != password) {
         showError("Wrong password");
+        return;
       }
+
+      if (!mounted) return;
+
+      final name = data['name']?.toString() ?? 'User';
+      final isAdmin = role.toLowerCase() == 'admin';
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => isAdmin
+              ? AdminDashboard(
+                  adminId: doc.id,
+                  adminName: name,
+                )
+              : EmployeeShell(
+                  employeeId: doc.id,
+                  role: role,
+                ),
+        ),
+      );
     } catch (e) {
       showError("Login error: $e");
     } finally {
-      setState(() => isLoading = false);
+      if (mounted) {
+        setState(() => isLoading = false);
+      }
     }
   }
 
@@ -104,7 +123,9 @@ class _LoginPageState extends State<LoginPage> {
                 decoration: InputDecoration(
                   prefixIcon: Icon(Icons.badge, color: Colors.white),
                   hintText: "Employee ID",
-                  hintStyle: TextStyle(color: Colors.white54),
+                  hintStyle: TextStyle(
+                      color: Colors.white54,
+                  ),
                   filled: true,
                   fillColor: Color(0xFF1E293B),
                   border: OutlineInputBorder(
@@ -123,7 +144,9 @@ class _LoginPageState extends State<LoginPage> {
                 decoration: InputDecoration(
                   prefixIcon: Icon(Icons.lock, color: Colors.white),
                   hintText: "Password",
-                  hintStyle: TextStyle(color: Colors.white54),
+                  hintStyle: TextStyle(
+                      color: Colors.white54,
+                  ),
                   filled: true,
                   fillColor: Color(0xFF1E293B),
                   border: OutlineInputBorder(
@@ -131,7 +154,9 @@ class _LoginPageState extends State<LoginPage> {
                     borderSide: BorderSide.none,
                   ),
                   suffixIcon: IconButton(
-                    icon: Icon(obscurePassword ? Icons.visibility_off : Icons.visibility, color: Colors.white,
+                    icon: Icon(
+                      obscurePassword ? Icons.visibility_off : Icons.visibility,
+                      color: Colors.white,
                     ),
                     onPressed: () {
                       setState(() {
@@ -156,18 +181,14 @@ class _LoginPageState extends State<LoginPage> {
                       borderRadius: BorderRadius.circular(12),
                     ),
                   ),
-                  child: isLoading ? SizedBox(
-                    height: 20,
-                    width: 20,
-                    child: CircularProgressIndicator(
-                      color: Colors.white,
-                      strokeWidth: 2,
-                    ),
+                  child: isLoading ?  CircularProgressIndicator(
+                    color: Colors.white,
+                    strokeWidth: 2,
                   )
-                      : Text("LOGIN",
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
+                      :  Text("LOGIN",
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
                 ),

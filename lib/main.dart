@@ -18,10 +18,12 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const MaterialApp(
+    return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Employee Attendance App',
-      home: LoginPage(),
+      home: const LoginPage(),
+      builder: (context, child) {
+        return child ?? const SizedBox();
+      },
     );
   }
 }
